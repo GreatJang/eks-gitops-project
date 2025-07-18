@@ -5,9 +5,8 @@ on:
     branches: [ main ]
 
 env:
-  AWS_REGION: ap-northeast-2                  # 서울 리전
-  ECR_REPOSITORY: flask-app                   # ECR에 생성한 리포지토리 이름
-  IMAGE_TAG: ${{ github.sha }}                # 커밋 해시 기준으로 태깅
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: flask-app
 
 jobs:
   build-and-push:
@@ -28,6 +27,34 @@ jobs:
       - name: 🔑 Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
+
+      - name: 🔍 Get Latest ECR Tag and Increment
+        id: get-latest-tag
+        run: |
+          set -e
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGION="${{ env.AWS_REGION }}"
+          IMAGE_REPO="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
+
+          echo "Fetching latest tag from: $IMAGE_REPO"
+          LATEST_TAG=$(aws ecr describe-images \
+            --repository-name $REPO_NAME \
+            --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' \
+            --output text || echo "none")
+
+          echo "Latest tag: $LATEST_TAG"
+
+          if [[ "$LATEST_TAG" =~ ^v([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            NEW_TAG="v${MAJOR}.$((MINOR + 1))"
+          else
+            NEW_TAG="v1.1"
+          fi
+
+          echo "New tag: $NEW_TAG"
+          echo "IMAGE_TAG=$NEW_TAG" >> $GITHUB_ENV
 
       - name: 🐳 Build, tag, and push image to Amazon ECR
         run: |
